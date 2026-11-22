@@ -1,0 +1,74 @@
+services:
+  iam_db:
+    container_name: iam-db
+    hostname: iam-db.lan
+    restart: unless-stopped
+    image: postgres:18.4
+    ports:
+      - 5432:5432
+    volumes:
+      - iam_pg_data:/var/lib/postgresql/18/docker
+    env_file:
+      - ../services/iam/.env
+    environment:
+      - POSTGRES_USER=${IAM_DATABASE_USER}
+      - POSTGRES_PASSWORD=${IAM_DATABASE_PASSWORD}
+      - POSTGRES_DB=${IAM_DATABASE_NAME}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d iam"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+  
+  iam_migrate:
+    restart: "no"
+    build:
+      context: ../services/iam
+      dockerfile: Dockerfile
+      target: migrate
+    env_file:
+      - ../services/iam/.env
+    depends_on:
+      iam_db:
+        condition: service_healthy
+  
+  iam:
+    container_name: iam
+    hostname: iam.lan
+    restart: unless-stopped
+    build:
+      context: ../services/iam
+      dockerfile: Dockerfile
+      target: server
+    ports:
+      - 8000:8000
+    volumes:
+      - ../services/iam/keys:/run/secrets/iam/keys:ro
+    env_file:
+      - ../services/iam/.env
+    depends_on:
+      iam_db:
+        condition: service_healthy
+      iam_migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/health || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+
+  gateway:
+    container_name: gateway
+    restart: unless-stopped
+    image: haproxy:3.2-alpine
+    ports:
+      - "8080:80"
+    volumes:
+      - ./haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    depends_on:
+      iam:
+        condition: service_healthy
+
+volumes:
+  iam_pg_data:

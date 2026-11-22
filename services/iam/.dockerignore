@@ -1,0 +1,8 @@
+.git
+.gitignore
+
+.env
+.env.*
+
+keys/
+**/*_test.go
